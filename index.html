@@ -18,7 +18,7 @@ h1{font-size:22px;margin:4px 0 12px}h2{font-size:17px;margin:0 0 8px}
 input,textarea,select,button{font:inherit;color:var(--ink)}
 input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 label{display:block;font-size:13px;color:var(--mute);margin:8px 0 3px}
-button{border:0;border-radius:8px;padding:10px 14px;background:var(--blue);color:#fff;font-weight:600}
+button{border:0;border-radius:8px;padding:10px 14px;background:var(--blue);color:var(--on,#fff);font-weight:600}
 button.ghost{background:transparent;color:var(--blue);border:1px solid var(--line)}
 button.x{background:none;color:var(--red);padding:4px 8px}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
@@ -39,6 +39,12 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
 .sws{display:flex;flex-wrap:wrap;gap:10px}
 .sw{width:40px;height:40px;border-radius:50%;padding:0;border:3px solid transparent}
 .sw.on{border-color:var(--ink)}
+.sec{font-weight:700;margin:12px 0 6px}
+.segs{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
+.seg.wide{grid-column:1/-1}
+.seg .n{display:block;font-size:15px}
+.seg .v{display:block;font-weight:700;color:var(--blue);font-size:18px;line-height:1.35}
+.c{font-size:12px;font-weight:500}
 .day{cursor:pointer}.day.sel{font-weight:700;color:var(--blue)}
 </style>
 </head>
@@ -58,7 +64,7 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
   </div>
   <div class="card">
     <h2>Log a meal <span class="mute" id="logFor"></span></h2>
-    <textarea id="desc" rows="2" placeholder="e.g. 6 oz grilled chicken, 1 cup rice, olive oil 1 tbsp (tip: use your phone keyboard's mic to talk)"></textarea>
+    <textarea id="desc" rows="2" placeholder="Ex: nacho bell grande, no beans, no sour creme, no tomato..."></textarea>
     <label>Photo (optional)</label>
     <input type="file" id="photo" accept="image/*">
     <p><button id="go">Estimate nutrition</button> <span class="mute" id="status"></span></p>
@@ -93,8 +99,14 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
 <section id="t-set" class="tab">
   <div class="card">
     <h2>Appearance</h2>
-    <label>Accent color</label><div class="sws" id="swatches"></div>
-    <label>Mode</label><select id="mode"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    <label>Quick accent colors</label><div class="sws" id="swatches"></div>
+    <label>Accent color (hex code)</label>
+    <div class="row"><input type="color" id="accPick" style="max-width:56px;height:42px;padding:2px"><input id="accHex" placeholder="#2f5bff" maxlength="7" autocomplete="off" autocapitalize="off"></div>
+    <label>Background color (hex code)</label>
+    <div class="row"><input type="color" id="bgPick" style="max-width:56px;height:42px;padding:2px"><input id="bgHex" placeholder="Default" maxlength="7" autocomplete="off" autocapitalize="off"></div>
+    <label>Light or dark (used when background is Default)</label>
+    <select id="mode"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    <p><button class="ghost" id="colReset">Reset colors</button></p>
   </div>
   <div class="card">
     <h2>Goals</h2>
@@ -129,7 +141,7 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
 <script>
 // ---------- Storage: everything is kept in this browser's localStorage ----------
 const KEY = 'leangainlog.v1';
-const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-3.8-flash', accent:'blue', mode:'auto'};
+const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-3.8-flash', accent:'blue', mode:'auto', accentHex:'', bgHex:''};
 let db = load();
 function load(){ try{ return Object.assign({}, DEF, JSON.parse(localStorage.getItem(KEY)||'{}')); }catch(e){ return {...DEF}; } }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){ alert('Could not save. Is private browsing on?'); } }
@@ -142,14 +154,43 @@ const today = () => dstr(new Date());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 
 // ---------- Theme ----------
-// [light-mode color, dark-mode color] for each accent choice
+// [light-mode color, dark-mode color] for each quick accent choice
 const THEMES = {blue:['#2f5bff','#6f8cff'], green:['#1f9d6b','#3cc690'], purple:['#7a4dff','#a58bff'], orange:['#e0610b','#ff9a4d'], red:['#d63a4a','#ff7b87'], teal:['#0f8b9c','#47c9db']};
+// Turns "abc", "#abc" or "#aabbcc" into "#aabbcc"; returns '' if it is not a valid hex code
+function normHex(v){
+  v = String(v || '').trim().replace(/^#?/, '#');
+  if(/^#[0-9a-f]{3}$/i.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+  return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : '';
+}
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+// Brightness from 0 (black) to 1 (white), used to pick readable text colors
+const lum = h => { const [r, g, b] = rgb(h).map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+// Blends color a toward color b by fraction t
+const mix = (a, b, t) => { const x = rgb(a), y = rgb(b); return '#' + x.map((c, i) => Math.round(c * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join(''); };
+function curDark(){
+  const bg = normHex(db.bgHex);
+  if(bg) return lum(bg) < 0.4;
+  return db.mode === 'dark' || (db.mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+}
+const curAccent = () => normHex(db.accentHex) || (THEMES[db.accent] || THEMES.blue)[curDark() ? 1 : 0];
 function applyTheme(){
-  const dark = db.mode === 'dark' || (db.mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-  const root = document.documentElement;
+  const root = document.documentElement, st = root.style, dark = curDark(), bg = normHex(db.bgHex), acc = curAccent();
   root.dataset.mode = db.mode;
-  root.style.setProperty('--blue', (THEMES[db.accent] || THEMES.blue)[dark ? 1 : 0]);
-  document.querySelector('meta[name=theme-color]').content = dark ? '#0e1424' : '#14213d';
+  st.setProperty('--blue', acc);
+  st.setProperty('--on', lum(acc) > 0.5 ? '#14213d' : '#ffffff'); // text color on accent buttons
+  const keys = ['--bg', '--card', '--ink', '--mute', '--line', '--green', '--red', '--amber'];
+  if(bg){
+    // A custom background: derive card, text and line colors so everything stays readable
+    st.setProperty('--bg', bg);
+    st.setProperty('--card', dark ? mix(bg, '#ffffff', 0.07) : mix(bg, '#ffffff', 0.6));
+    st.setProperty('--ink', dark ? '#eef1f8' : '#14213d');
+    st.setProperty('--mute', dark ? '#98a2bb' : '#6b7488');
+    st.setProperty('--line', dark ? mix(bg, '#ffffff', 0.15) : mix(bg, '#000000', 0.12));
+    st.setProperty('--green', dark ? '#3cc690' : '#1f9d6b');
+    st.setProperty('--red', dark ? '#ff7b6e' : '#c9392c');
+    st.setProperty('--amber', dark ? '#f0aa33' : '#d98a0b');
+  } else keys.forEach(k => st.removeProperty(k));
+  document.querySelector('meta[name=theme-color]').content = bg || (dark ? '#0e1424' : '#14213d');
 }
 applyTheme();
 
@@ -283,46 +324,68 @@ function renderWeight(){
 }
 
 // ---------- Monthly body scan ----------
-// DLM assumed to be Dry Lean Mass (InBody). good = true when going UP is what you want
-// Each field: [key, form label, good-direction (true = up is good, false = down is good, null = neutral), short list label]
+// DLM assumed to be Dry Lean Mass (InBody).
+// Each field: [key, form label, good direction (true = up is good, false = down is good, null = neutral), short label, type]
+// type: 'pct' shows a % sign, 'int' is a whole number, 'dec' always shows one decimal (7 becomes 7.0)
 const FIELDS = [
-  ['smm','SMM (skeletal muscle mass)',true],['bfm','BFM (body fat mass)',false],['pbf','PBF (percent body fat)',false],
-  ['bmi','BMI',null],['bmr','BMR',true],['dlm','DLM (dry lean mass)',true],
-  ['trunk','Trunk lean (lb)',true,'Trunk lb'],['trunkp','Trunk lean (%)',true,'Trunk %'],
-  ['larm','Left arm lean (lb)',true,'L arm lb'],['larmp','Left arm lean (%)',true,'L arm %'],
-  ['rarm','Right arm lean (lb)',true,'R arm lb'],['rarmp','Right arm lean (%)',true,'R arm %'],
-  ['lleg','Left leg lean (lb)',true,'L leg lb'],['llegp','Left leg lean (%)',true,'L leg %'],
-  ['rleg','Right leg lean (lb)',true,'R leg lb'],['rlegp','Right leg lean (%)',true,'R leg %']
+  ['smm','SMM (skeletal muscle mass)',true,'SMM','dec'],['bfm','BFM (body fat mass)',false,'BFM','dec'],['pbf','PBF (percent body fat)',false,'PBF','pct'],
+  ['bmi','BMI',null,'BMI','dec'],['bmr','BMR',true,'BMR','int'],['dlm','DLM (dry lean mass)',true,'DLM','dec'],
+  ['trunk','Trunk lean (lb)',true,'Trunk','dec'],['trunkp','Trunk lean (%)',true,'Trunk','pct'],
+  ['larm','Left arm lean (lb)',true,'Left arm','dec'],['larmp','Left arm lean (%)',true,'Left arm','pct'],
+  ['rarm','Right arm lean (lb)',true,'Right arm','dec'],['rarmp','Right arm lean (%)',true,'Right arm','pct'],
+  ['lleg','Left leg lean (lb)',true,'Left leg','dec'],['llegp','Left leg lean (%)',true,'Left leg','pct'],
+  ['rleg','Right leg lean (lb)',true,'Right leg','dec'],['rlegp','Right leg lean (%)',true,'Right leg','pct']
 ];
+const FBY = Object.fromEntries(FIELDS.map(f => [f[0], f]));
+const SEGS = [['trunk','Trunk'],['larm','Left arm'],['rarm','Right arm'],['lleg','Left leg'],['rleg','Right leg']];
+// Reads a number from a box (accepts a comma as decimal point and a trailing %)
+const num = v => parseFloat(String(v).replace(',', '.'));
+// Tidies a box when you leave it: 7 -> 7.0 for pounds; 17 -> 17% for percentages
+function fmtInput(f){
+  const el = $('s_' + f[0]), v = num(el.value);
+  if(isNaN(v)){ el.value = ''; return; }
+  el.value = f[4] === 'pct' ? v + '%' : f[4] === 'int' ? String(Math.round(v)) : v.toFixed(1);
+}
+// How a saved value is shown
+const fmtVal = (f, v) => f[4] === 'pct' ? v + '%' : f[4] === 'int' ? String(Math.round(v)) : Number(v).toFixed(1);
 // A heading is inserted before the segmental fields (index 6)
-$('scanForm').innerHTML = FIELDS.map((f, i) => (i === 6 ? '<div style="grid-column:1/-1"><h2 style="margin-top:10px">Segmental lean analysis</h2></div>' : '') + `<div><label>${f[1]}</label><input id="s_${f[0]}" type="number" step="0.1" inputmode="decimal"></div>`).join('');
+$('scanForm').innerHTML = FIELDS.map((f, i) => (i === 6 ? '<div style="grid-column:1/-1"><h2 style="margin-top:10px">Segmental lean analysis</h2></div>' : '') + `<div><label>${f[1]}</label><input id="s_${f[0]}" type="text" inputmode="decimal" autocomplete="off" placeholder="${f[4] === 'pct' ? '%' : ''}"></div>`).join('');
+FIELDS.forEach(f => $('s_' + f[0]).onblur = () => fmtInput(f));
 $('sAdd').onclick = () => {
   const s = {date: today()}; let any = false;
-  FIELDS.forEach(f => { const v = parseFloat($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
+  FIELDS.forEach(f => { const v = num($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
   if(!any) return;
   db.scans.push(s); db.scans.sort((a,b) => a.date.localeCompare(b.date));
   FIELDS.forEach(f => $('s_' + f[0]).value = ''); save(); render();
 };
 
+// Change since the previous scan, colored green when it moved the right way
+function chg(f, s, p){
+  if(!p || p[f[0]] === undefined || s[f[0]] === undefined) return '';
+  const d = s[f[0]] - p[f[0]];
+  const cls = (d === 0 || f[2] === null) ? 'mute' : ((f[2] ? d > 0 : d < 0) ? 'up' : 'down');
+  return ` <span class="c ${cls}">(${d >= 0 ? '+' : ''}${d.toFixed(1)})</span>`;
+}
+
 function renderScan(){
-  const L = db.scans;
-  $('sList').innerHTML = [...L].reverse().map((s, i, arr) => {
+  $('sList').innerHTML = [...db.scans].reverse().map((s, i, arr) => {
     const p = arr[i + 1]; // previous (older) scan
-    const cells = FIELDS.filter(f => s[f[0]] !== undefined).map(f => {
-      let ch = '';
-      if(p && p[f[0]] !== undefined){
-        const d = s[f[0]] - p[f[0]], good = f[2] === null ? null : (f[2] ? d > 0 : d < 0);
-        ch = ` <span class="${good === null ? 'mute' : good ? 'up' : 'down'}">(${d>=0?'+':''}${d.toFixed(1)})</span>`;
-      }
-      return `<div><span class="mute">${f[3] || f[0].toUpperCase()}</span> ${s[f[0]]}${ch}</div>`;
-    }).join('');
-    return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-d="${s.date}">Delete</button><div class="grid">${cells}</div></div>`;
+    // Block 1: overall body composition
+    const gen = FIELDS.slice(0, 6).filter(f => s[f[0]] !== undefined).map(f => `<div><span class="mute">${f[3]}</span> ${fmtVal(f, s[f[0]])}${chg(f, s, p)}</div>`).join('');
+    // Block 2: segmental lean, each part stacked as name, pounds, percent
+    const seg = SEGS.filter(([k]) => s[k] !== undefined || s[k + 'p'] !== undefined).map(([k, name]) =>
+      `<div class="seg${k === 'trunk' ? ' wide' : ''}"><span class="n">${name}</span>` +
+      (s[k] !== undefined ? `<span class="v">${fmtVal(FBY[k], s[k])} lbs${chg(FBY[k], s, p)}</span>` : '') +
+      (s[k + 'p'] !== undefined ? `<span class="v">${fmtVal(FBY[k + 'p'], s[k + 'p'])}${chg(FBY[k + 'p'], s, p)}</span>` : '') + '</div>').join('');
+    return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-d="${s.date}">Delete</button>` +
+      (gen ? `<div class="sec">Body composition</div><div class="grid">${gen}</div>` : '') +
+      (seg ? `<div class="sec">Segmental lean analysis</div><div class="segs">${seg}</div>` : '') + '</div>';
   }).join('') || '<p class="mute">No scans yet. Enter your numbers after each monthly visit. Green means moving the right way for gaining muscle and staying lean.</p>';
   $('sList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if(confirm(`Delete the ${b.dataset.d} body scan? This can't be undone.`)){ db.scans = db.scans.filter(x => x.date !== b.dataset.d); save(); render(); } });
 }
 
 // ---------- Settings & backup ----------
-function renderSet(){ document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.k === db.accent)); $('mode').value = db.mode; $('bkTxt').textContent = 'Last backup: ' + (localStorage.getItem('leangainlog.lastbackup') || 'never'); $('gCal').value = db.goals.cal; $('gPro').value = db.goals.pro; $('unit').value = db.unit; $('key').value = db.key; $('model').value = db.model; }
+function renderSet(){ document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', !normHex(db.accentHex) && b.dataset.k === db.accent)); $('mode').value = db.mode; $('accHex').value = curAccent(); $('accPick').value = curAccent(); $('bgHex').value = normHex(db.bgHex); $('bgPick').value = normHex(db.bgHex) || (curDark() ? '#0e1424' : '#eef1f4'); $('bkTxt').textContent = 'Last backup: ' + (localStorage.getItem('leangainlog.lastbackup') || 'never'); $('gCal').value = db.goals.cal; $('gPro').value = db.goals.pro; $('unit').value = db.unit; $('key').value = db.key; $('model').value = db.model; }
 $('save').onclick = () => {
   db.goals = {cal: +$('gCal').value || 2800, pro: +$('gPro').value || 160};
   db.unit = $('unit').value.trim() || 'lb'; db.key = $('key').value.trim(); db.model = $('model').value.trim() || 'gemini-3.8-flash';
@@ -344,8 +407,25 @@ $('imp').onchange = async e => {
 
 // Theme controls apply immediately
 $('swatches').innerHTML = Object.keys(THEMES).map(k => `<button class="sw" data-k="${k}" style="background:${THEMES[k][0]}" aria-label="${k}"></button>`).join('');
-$('swatches').querySelectorAll('.sw').forEach(b => b.onclick = () => { db.accent = b.dataset.k; save(); applyTheme(); renderSet(); });
-$('mode').onchange = () => { db.mode = $('mode').value; save(); applyTheme(); };
+$('swatches').querySelectorAll('.sw').forEach(b => b.onclick = () => { db.accent = b.dataset.k; db.accentHex = ''; save(); applyTheme(); renderSet(); });
+$('mode').onchange = () => { db.mode = $('mode').value; save(); applyTheme(); renderSet(); };
+// Saves a typed hex code once it is complete (6 digits while typing, 3 or 6 when you leave the box)
+function setColor(which, text, final){
+  const raw = text.trim().replace('#', '');
+  if(which === 'bgHex' && raw === ''){ db.bgHex = ''; save(); applyTheme(); return; } // empty = default background
+  if(raw.length !== 6 && !(final && raw.length === 3)) return;
+  const h = normHex(raw); if(!h) return;
+  db[which] = h; save(); applyTheme();
+  $(which === 'accentHex' ? 'accPick' : 'bgPick').value = h;
+  if(which === 'accentHex') document.querySelectorAll('.sw').forEach(b => b.classList.remove('on'));
+}
+$('accHex').oninput = () => setColor('accentHex', $('accHex').value, false);
+$('accHex').onchange = () => { setColor('accentHex', $('accHex').value, true); renderSet(); };
+$('bgHex').oninput = () => setColor('bgHex', $('bgHex').value, false);
+$('bgHex').onchange = () => { setColor('bgHex', $('bgHex').value, true); renderSet(); };
+$('accPick').oninput = () => { $('accHex').value = $('accPick').value; setColor('accentHex', $('accPick').value, true); };
+$('bgPick').oninput = () => { $('bgHex').value = $('bgPick').value; setColor('bgHex', $('bgPick').value, true); };
+$('colReset').onclick = () => { db.accent = 'blue'; db.accentHex = ''; db.bgHex = ''; db.mode = 'auto'; save(); applyTheme(); renderSet(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 // The PIN lock was removed; clear any leftover PIN so nothing is hidden
 try{ localStorage.removeItem('leangainlog.pin'); }catch(e){}
