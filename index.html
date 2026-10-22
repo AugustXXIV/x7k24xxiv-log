@@ -166,6 +166,10 @@ const pad = n => String(n).padStart(2,'0');
 const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; // local date, not UTC
 const today = () => dstr(new Date());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+// Give older scans a unique ID so scans on the same date can be managed separately.
+let scansMigrated = false;
+db.scans = (db.scans || []).map(s => { if (s.id) return s; scansMigrated = true; return {...s, id: uid()}; });
+if (scansMigrated) save();
 
 // ---------- Theme ----------
 // [light-mode color, dark-mode color] for each quick accent choice
@@ -388,7 +392,7 @@ const fmtVal = (f, v) => f[4] === 'pct' ? v + '%' : f[4] === 'int' ? String(Math
 $('scanForm').innerHTML = FIELDS.map((f, i) => (i === 6 ? '<div style="grid-column:1/-1"><h2 style="margin-top:10px">Segmental lean analysis</h2></div>' : '') + `<div><label>${f[1]}</label><input id="s_${f[0]}" type="text" inputmode="decimal" autocomplete="off" placeholder="${f[4] === 'pct' ? '%' : ''}"></div>`).join('');
 FIELDS.forEach(f => $('s_' + f[0]).onblur = () => fmtInput(f));
 $('sAdd').onclick = () => {
-  const s = {date: today()}; let any = false;
+  const s = {id: uid(), date: today()}; let any = false;
   FIELDS.forEach(f => { const v = num($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
   if(!any) return;
   db.scans.push(s); db.scans.sort((a,b) => a.date.localeCompare(b.date));
@@ -413,11 +417,11 @@ function renderScan(){
       `<div class="seg${k === 'trunk' ? ' wide' : ''}"><span class="n">${name}</span>` +
       (s[k] !== undefined ? `<span class="v">${fmtVal(FBY[k], s[k])} lbs${chg(FBY[k], s, p)}</span>` : '') +
       (s[k + 'p'] !== undefined ? `<span class="v">${fmtVal(FBY[k + 'p'], s[k + 'p'])}${chg(FBY[k + 'p'], s, p)}</span>` : '') + '</div>').join('');
-    return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-d="${s.date}">Delete</button>` +
+    return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-id="${s.id}">Delete</button>` +
       (gen ? `<div class="sec">Body composition</div><div class="grid">${gen}</div>` : '') +
       (seg ? `<div class="sec">Segmental lean analysis</div><div class="segs">${seg}</div>` : '') + '</div>';
   }).join('') || '<p class="mute">No scans yet. Enter your numbers after each monthly visit. Green means moving the right way for gaining muscle and staying lean.</p>';
-  $('sList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if(confirm(`Delete the ${b.dataset.d} body scan? This can't be undone.`)){ db.scans = db.scans.filter(x => x.date !== b.dataset.d); save(); render(); } });
+  $('sList').querySelectorAll('[data-id]').forEach(b => b.onclick = () => { const scan = db.scans.find(x => x.id === b.dataset.id); if(scan && confirm(`Delete the ${scan.date} body scan? This can't be undone.`)){ db.scans = db.scans.filter(x => x.id !== b.dataset.id); save(); render(); } });
 }
 
 // ---------- Settings & backup ----------
