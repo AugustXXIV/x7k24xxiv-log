@@ -166,10 +166,15 @@ const pad = n => String(n).padStart(2,'0');
 const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; // local date, not UTC
 const today = () => dstr(new Date());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-// Give older scans a unique ID so scans on the same date can be managed separately.
-let scansMigrated = false;
-db.scans = (db.scans || []).map(s => { if (s.id) return s; scansMigrated = true; return {...s, id: uid()}; });
-if (scansMigrated) save();
+// Give every weigh-in and scan a unique ID so entries on the same day are kept and deleted separately.
+// Older entries without an ID get one here; safe to run repeatedly.
+const nowTime = () => new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+function ensureIds(){
+  let changed = false;
+  ['weights','scans'].forEach(k => { db[k] = (db[k] || []).map(x => { if(x.id) return x; changed = true; return {...x, id: uid()}; }); });
+  if(changed) save();
+}
+ensureIds();
 
 // ---------- Theme ----------
 // [light-mode color, dark-mode color] for each quick accent choice
@@ -342,15 +347,20 @@ function renderFood(){
 // ---------- Weight ----------
 $('wAdd').onclick = () => {
   const v = parseFloat($('wIn').value); if(!v) return;
-  db.weights = db.weights.filter(w => w.date !== today()); // one entry per day
-  db.weights.push({date: today(), v}); db.weights.sort((a,b) => a.date.localeCompare(b.date));
+  // Every weigh-in is kept, even several on the same day
+  db.weights.push({id: uid(), date: today(), t: nowTime(), v});
+  db.weights.sort((a,b) => a.date.localeCompare(b.date)); // stable sort: same-day entries stay in the order added
   $('wIn').value = ''; save(); render();
 };
 
 function renderWeight(){
-  const w = db.weights, u = db.unit;
+  const u = db.unit;
+  // Several weigh-ins in one day count as one data point (their average) for the trend and chart
+  const byDay = {};
+  db.weights.forEach(x => (byDay[x.date] = byDay[x.date] || []).push(x.v));
+  const w = Object.keys(byDay).sort().map(d => ({date: d, v: byDay[d].reduce((t, y) => t + y, 0) / byDay[d].length}));
   if(w.length >= 2){
-    // Compare the average of the latest 7 entries with the 7 before; smooths out daily water swings
+    // Compare the average of the latest 7 weigh-in days with the 7 before; smooths out daily water swings
     const avg = a => a.reduce((t,x) => t + x.v, 0) / a.length;
     const now = avg(w.slice(-7)), prev = w.length > 7 ? avg(w.slice(-14, -7)) : w[0].v;
     const diff = now - prev;
@@ -358,9 +368,12 @@ function renderWeight(){
     const pts = w.slice(-30), W = 320, H = 140, mn = Math.min(...pts.map(p=>p.v)) - 1, mx = Math.max(...pts.map(p=>p.v)) + 1;
     const xy = pts.map((p,i) => `${(i/(pts.length-1||1))*(W-20)+10},${H-10-((p.v-mn)/(mx-mn))*(H-20)}`).join(' ');
     $('wChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}"><polyline points="${xy}" fill="none" stroke="var(--blue)" stroke-width="2.5"/><text x="10" y="12" font-size="10" fill="var(--mute)">${mx.toFixed(0)}</text><text x="10" y="${H-2}" font-size="10" fill="var(--mute)">${mn.toFixed(0)}</text></svg>`;
-  } else { $('wTrend').textContent = 'Add at least 2 weigh-ins to see a trend. Weigh in at the same time each morning.'; $('wChart').innerHTML = ''; }
-  $('wList').innerHTML = [...w].reverse().slice(0,30).map(x => `<div class="item"><span>${x.date}</span><span>${x.v} ${u} <button class="x" data-d="${x.date}">Delete</button></span></div>`).join('') || '<p class="mute">No entries yet.</p>';
-  $('wList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if(confirm(`Delete the ${b.dataset.d} weigh-in? This can't be undone.`)){ db.weights = db.weights.filter(x => x.date !== b.dataset.d); save(); render(); } });
+  } else { $('wTrend').textContent = 'Add weigh-ins on at least 2 different days to see a trend. Weigh in at the same time each morning.'; $('wChart').innerHTML = ''; }
+  $('wList').innerHTML = [...db.weights].reverse().slice(0, 40).map(x => `<div class="item"><span>${x.date} <span class="mute">${x.t || ''}</span></span><span>${x.v} ${u} <button class="x" data-id="${x.id}">Delete</button></span></div>`).join('') || '<p class="mute">No entries yet.</p>';
+  $('wList').querySelectorAll('[data-id]').forEach(b => b.onclick = () => {
+    const e = db.weights.find(x => x.id === b.dataset.id);
+    if(e && confirm(`Delete the ${e.v} ${u} weigh-in from ${e.date}${e.t ? ' at ' + e.t : ''}? This can't be undone.`)){ db.weights = db.weights.filter(x => x.id !== e.id); save(); render(); }
+  });
 }
 
 // ---------- Monthly body scan ----------
@@ -392,7 +405,7 @@ const fmtVal = (f, v) => f[4] === 'pct' ? v + '%' : f[4] === 'int' ? String(Math
 $('scanForm').innerHTML = FIELDS.map((f, i) => (i === 6 ? '<div style="grid-column:1/-1"><h2 style="margin-top:10px">Segmental lean analysis</h2></div>' : '') + `<div><label>${f[1]}</label><input id="s_${f[0]}" type="text" inputmode="decimal" autocomplete="off" placeholder="${f[4] === 'pct' ? '%' : ''}"></div>`).join('');
 FIELDS.forEach(f => $('s_' + f[0]).onblur = () => fmtInput(f));
 $('sAdd').onclick = () => {
-  const s = {id: uid(), date: today()}; let any = false;
+  const s = {id: uid(), date: today(), t: nowTime()}; let any = false;
   FIELDS.forEach(f => { const v = num($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
   if(!any) return;
   db.scans.push(s); db.scans.sort((a,b) => a.date.localeCompare(b.date));
@@ -417,7 +430,7 @@ function renderScan(){
       `<div class="seg${k === 'trunk' ? ' wide' : ''}"><span class="n">${name}</span>` +
       (s[k] !== undefined ? `<span class="v">${fmtVal(FBY[k], s[k])} lbs${chg(FBY[k], s, p)}</span>` : '') +
       (s[k + 'p'] !== undefined ? `<span class="v">${fmtVal(FBY[k + 'p'], s[k + 'p'])}${chg(FBY[k + 'p'], s, p)}</span>` : '') + '</div>').join('');
-    return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-id="${s.id}">Delete</button>` +
+    return `<div class="item" style="display:block"><b>${s.date}</b> <span class="mute">${s.t || ''}</span> <button class="x" data-id="${s.id}">Delete</button>` +
       (gen ? `<div class="sec">Body composition</div><div class="grid">${gen}</div>` : '') +
       (seg ? `<div class="sec">Segmental lean analysis</div><div class="segs">${seg}</div>` : '') + '</div>';
   }).join('') || '<p class="mute">No scans yet. Enter your numbers after each monthly visit. Green means moving the right way for gaining muscle and staying lean.</p>';
@@ -441,7 +454,7 @@ $('impB').onclick = () => $('imp').click();
 $('imp').onchange = async e => {
   try{
     const j = JSON.parse(await e.target.files[0].text());
-    db = Object.assign({}, DEF, j, {key: db.key}); save(); render(); alert('Imported');
+    db = Object.assign({}, DEF, j, {key: db.key}); ensureIds(); save(); render(); alert('Imported');
   }catch(err){ alert('That file could not be read.'); }
 };
 
