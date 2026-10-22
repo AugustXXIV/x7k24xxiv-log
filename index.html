@@ -81,7 +81,7 @@ details.card[open]>summary{margin-bottom:8px}
       <img id="photoThumb" class="hide" alt="Selected photo">
       <button type="button" class="x hide" id="photoClear" aria-label="Remove photo">Remove</button>
     </div>
-    <p><button id="go">Estimate nutrition</button> <span class="mute" id="status"></span></p>
+    <p><button id="go">Estimate nutrition</button> <button class="ghost" id="manual">Enter manually</button> <span class="mute" id="status"></span></p>
     <div id="result" class="hide"></div>
   </div>
   <div class="card"><h2 id="mealsH">Today</h2><div id="meals"></div></div>
@@ -243,28 +243,39 @@ $('photoBtn').onclick = () => $('photo').click();
 $('photo').onchange = photoUI;
 $('photoClear').onclick = () => { $('photo').value = ''; photoUI(); };
 
+// Skip the AI: opens the same editable form with empty numbers so you can type them in yourself
+$('manual').onclick = () => { showResult({name: $('desc').value.trim().slice(0, 60)}, true); $('status').textContent = ''; };
+
 $('go').onclick = async () => {
   const text = $('desc').value.trim(), file = $('photo').files[0];
   if(!db.key){ alert('Add your Gemini API key in Settings first.'); return; }
   if(!text && !file){ alert('Type what you ate or add a photo.'); return; }
   $('status').textContent = 'Working...'; $('go').disabled = true;
   try{
-    const parts = [{text: 'Estimate the nutrition of this meal. Use any details given (weights, oils, sauces) over guesses. ' +
+    const parts = [{text: 'Estimate the nutrition of this meal. If it includes a chain-restaurant or packaged item, search the web for its official nutrition facts and use them. Use any details given (weights, oils, sauces) over guesses. ' +
       'Reply ONLY with JSON: {"name":"short meal name","calories":number,"protein":number,"carbs":number,"fat":number} ' +
       'for the WHOLE meal (protein/carbs/fat in grams). Meal description: ' + (text || '(see photo)')}];
     if(file) parts.push({inline_data:{mime_type:'image/jpeg', data: await photoToBase64(file)}});
-    // Retry a few times if Google is busy (HTTP 503) or rate-limiting (429); these usually clear up quickly
+    // Sends the request. With search on, Gemini can look up official nutrition facts on Google.
+    // Retries a few times if Google is busy (503) or rate-limiting (429); these usually clear up quickly.
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(db.model)}:generateContent?key=${encodeURIComponent(db.key)}`;
-    const body = JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}});
-    let r, j;
-    for(let attempt = 1; attempt <= 4; attempt++){
-      r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body});
-      j = await r.json();
-      if(r.status !== 503 && r.status !== 429) break;
-      if(attempt < 4){ $('status').textContent = `Google is busy, retrying (${attempt}/3)...`; await new Promise(ok => setTimeout(ok, attempt * 3000)); }
+    async function send(search){
+      const body = JSON.stringify(search ? {contents:[{parts}], tools:[{google_search:{}}]} : {contents:[{parts}], generationConfig:{responseMimeType:'application/json'}});
+      let r, j;
+      for(let attempt = 1; attempt <= 4; attempt++){
+        r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body});
+        j = await r.json();
+        if(r.status !== 503 && r.status !== 429) break;
+        if(attempt < 4){ $('status').textContent = `Google is busy, retrying (${attempt}/3)...`; await new Promise(ok => setTimeout(ok, attempt * 3000)); }
+      }
+      return {r, j};
     }
+    let {r, j} = await send(true);
+    if(!r.ok) ({r, j} = await send(false)); // if search is unavailable (e.g. free limit reached), fall back to a plain estimate
     if(!r.ok) throw new Error(j.error?.message || 'Request failed');
-    const m = JSON.parse(j.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim());
+    // With search on, the reply is plain text, so pull the JSON object out of it
+    const txt = j.candidates[0].content.parts.map(x => x.text || '').join('');
+    const m = JSON.parse(txt.match(/\{[\s\S]*\}/)[0]);
     showResult(m);
     $('status').textContent = '';
   }catch(e){ $('status').textContent = 'Error: ' + e.message; }
@@ -272,14 +283,14 @@ $('go').onclick = async () => {
 };
 
 // Shows editable estimate so you can correct it before saving
-function showResult(m){
+function showResult(m, manual){
   const r = $('result'); r.classList.remove('hide');
   r.innerHTML = `<label>Meal</label><input id="rN" value="${esc(m.name||'Meal')}">
-  <div class="grid"><div><label>Calories</label><input id="rC" type="number" value="${Math.round(m.calories||0)}"></div>
-  <div><label>Protein g</label><input id="rP" type="number" value="${Math.round(m.protein||0)}"></div>
-  <div><label>Carbs g</label><input id="rK" type="number" value="${Math.round(m.carbs||0)}"></div>
-  <div><label>Fat g</label><input id="rF" type="number" value="${Math.round(m.fat||0)}"></div></div>
-  <p><button id="rS">Save meal</button> <span class="mute">Edit any number if it looks off.</span></p>`;
+  <div class="grid"><div><label>Calories</label><input id="rC" type="number" inputmode="decimal" value="${manual ? '' : Math.round(m.calories||0)}"></div>
+  <div><label>Protein g</label><input id="rP" type="number" inputmode="decimal" value="${manual ? '' : Math.round(m.protein||0)}"></div>
+  <div><label>Carbs g</label><input id="rK" type="number" inputmode="decimal" value="${manual ? '' : Math.round(m.carbs||0)}"></div>
+  <div><label>Fat g</label><input id="rF" type="number" inputmode="decimal" value="${manual ? '' : Math.round(m.fat||0)}"></div></div>
+  <p><button id="rS">Save meal</button> <span class="mute">${manual ? 'Type the numbers from the label or website.' : 'Edit any number if it looks off.'}</span></p>`;
   $('rS').onclick = () => {
     db.meals.push({id:uid(), date:viewDate, name:$('rN').value, cal:+$('rC').value||0, pro:+$('rP').value||0, carb:+$('rK').value||0, fat:+$('rF').value||0});
     save(); r.classList.add('hide'); $('desc').value=''; $('photo').value=''; photoUI(); render();
