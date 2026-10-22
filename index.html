@@ -132,7 +132,7 @@ svg{width:100%;height:auto;display:block}
 <script>
 // ---------- Storage: everything is kept in this browser's localStorage ----------
 const KEY = 'leangainlog.v1';
-const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-2.5-flash'};
+const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-3.8-flash'};
 let db = load();
 function load(){ try{ return Object.assign({}, DEF, JSON.parse(localStorage.getItem(KEY)||'{}')); }catch(e){ return {...DEF}; } }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){ alert('Could not save. Is private browsing on?'); } }
@@ -178,11 +178,16 @@ $('go').onclick = async () => {
       'Reply ONLY with JSON: {"name":"short meal name","calories":number,"protein":number,"carbs":number,"fat":number} ' +
       'for the WHOLE meal (protein/carbs/fat in grams). Meal description: ' + (text || '(see photo)')}];
     if(file) parts.push({inline_data:{mime_type:'image/jpeg', data: await photoToBase64(file)}});
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(db.model)}:generateContent?key=${encodeURIComponent(db.key)}`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}})
-    });
-    const j = await r.json();
+    // Retry a few times if Google is busy (HTTP 503) or rate-limiting (429); these usually clear up quickly
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(db.model)}:generateContent?key=${encodeURIComponent(db.key)}`;
+    const body = JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}});
+    let r, j;
+    for(let attempt = 1; attempt <= 4; attempt++){
+      r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body});
+      j = await r.json();
+      if(r.status !== 503 && r.status !== 429) break;
+      if(attempt < 4){ $('status').textContent = `Google is busy, retrying (${attempt}/3)...`; await new Promise(ok => setTimeout(ok, attempt * 3000)); }
+    }
     if(!r.ok) throw new Error(j.error?.message || 'Request failed');
     const m = JSON.parse(j.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim());
     showResult(m);
@@ -283,7 +288,7 @@ function renderScan(){
 function renderSet(){ $('bkTxt').textContent = 'Last backup: ' + (localStorage.getItem('leangainlog.lastbackup') || 'never'); $('gCal').value = db.goals.cal; $('gPro').value = db.goals.pro; $('unit').value = db.unit; $('key').value = db.key; $('model').value = db.model; }
 $('save').onclick = () => {
   db.goals = {cal: +$('gCal').value || 2800, pro: +$('gPro').value || 160};
-  db.unit = $('unit').value.trim() || 'lb'; db.key = $('key').value.trim(); db.model = $('model').value.trim() || 'gemini-2.5-flash';
+  db.unit = $('unit').value.trim() || 'lb'; db.key = $('key').value.trim(); db.model = $('model').value.trim() || 'gemini-3.8-flash';
   save(); render(); alert('Saved');
 };
 $('exp').onclick = () => {
