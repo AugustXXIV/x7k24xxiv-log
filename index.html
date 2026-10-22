@@ -39,6 +39,12 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
 .sws{display:flex;flex-wrap:wrap;gap:10px}
 .sw{width:40px;height:40px;border-radius:50%;padding:0;border:3px solid transparent}
 .sw.on{border-color:var(--ink)}
+details.card>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary h2{margin:0}
+details.card>summary::after{content:"+";font-size:26px;line-height:1;color:var(--blue)}
+details.card[open]>summary::after{content:"\2212"}
+details.card[open]>summary{margin-bottom:8px}
 .sec{font-weight:700;margin:12px 0 6px}
 .segs{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
 .seg.wide{grid-column:1/-1}
@@ -87,11 +93,11 @@ select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;ba
 
 <!-- BODY SCAN TAB -->
 <section id="t-scan" class="tab">
-  <div class="card">
-    <h2>Monthly body scan</h2>
+  <details class="card" id="scanCard">
+    <summary><h2>Monthly body scan</h2></summary>
     <div class="grid" id="scanForm"></div>
     <p><button id="sAdd">Save scan</button></p>
-  </div>
+  </details>
   <div class="card"><div id="sList"></div></div>
 </section>
 
@@ -356,7 +362,7 @@ $('sAdd').onclick = () => {
   FIELDS.forEach(f => { const v = num($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
   if(!any) return;
   db.scans.push(s); db.scans.sort((a,b) => a.date.localeCompare(b.date));
-  FIELDS.forEach(f => $('s_' + f[0]).value = ''); save(); render();
+  FIELDS.forEach(f => $('s_' + f[0]).value = ''); $('scanCard').open = false; save(); render();
 };
 
 // Change since the previous scan, colored green when it moved the right way
