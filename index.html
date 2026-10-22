@@ -8,7 +8,8 @@
 <title>Lean Gain Log</title>
 <style>
 :root{--bg:#eef1f4;--card:#fff;--ink:#14213d;--mute:#6b7488;--line:#d9dee6;--blue:#2f5bff;--amber:#d98a0b;--green:#1f9d6b;--red:#c9392c}
-@media(prefers-color-scheme:dark){:root{--bg:#0e1424;--card:#18203a;--ink:#eef1f8;--mute:#98a2bb;--line:#2a3558;--blue:#6f8cff;--amber:#f0aa33;--green:#3cc690;--red:#ff7b6e}}
+@media(prefers-color-scheme:dark){:root:not([data-mode="light"]){--bg:#0e1424;--card:#18203a;--ink:#eef1f8;--mute:#98a2bb;--line:#2a3558;--amber:#f0aa33;--green:#3cc690;--red:#ff7b6e}}
+:root[data-mode="dark"]{--bg:#0e1424;--card:#18203a;--ink:#eef1f8;--mute:#98a2bb;--line:#2a3558;--amber:#f0aa33;--green:#3cc690;--red:#ff7b6e}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 0 calc(70px + env(safe-area-inset-bottom))}
 main{max-width:560px;margin:0 auto;padding:14px}
@@ -34,40 +35,37 @@ nav button.on{color:var(--blue);box-shadow:inset 0 3px 0 var(--blue)}
 .tab{display:none}.tab.on{display:block}
 svg{width:100%;height:auto;display:block}
 .hide{display:none}
-#lock{position:fixed;inset:0;z-index:10;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px}
-#lock.hide{display:none}
-#lock input{max-width:200px;text-align:center;font-size:22px;letter-spacing:6px}
+select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.sws{display:flex;flex-wrap:wrap;gap:10px}
+.sw{width:40px;height:40px;border-radius:50%;padding:0;border:3px solid transparent}
+.sw.on{border-color:var(--ink)}
+.day{cursor:pointer}.day.sel{font-weight:700;color:var(--blue)}
 </style>
 </head>
 <body>
-<div id="lock">
-  <h1>Lean Gain Log</h1>
-  <input id="pinIn" type="password" inputmode="numeric" placeholder="PIN" autocomplete="off">
-  <button id="unlock">Unlock</button>
-  <div class="down" id="pinErr"></div>
-</div>
 <main>
 <h1>Lean Gain Log</h1>
 
 <!-- FOOD TAB -->
 <section id="t-food" class="tab on">
   <div class="card">
-    <div class="row"><div><div class="mute">Calories today</div><div class="big" id="calTot">0</div></div>
+    <div class="row" style="margin-bottom:10px"><button class="ghost" id="dPrev" aria-label="Previous day">&#9664;</button><input type="date" id="dPick"><button class="ghost" id="dNext" aria-label="Next day">&#9654;</button></div>
+    <div class="row"><div><div class="mute" id="calLbl">Calories today</div><div class="big" id="calTot">0</div></div>
     <div style="text-align:right"><div class="mute">Protein</div><div class="big" id="proTot">0g</div></div></div>
     <div class="bar"><i id="calBar" style="width:0"></i></div>
     <div class="bar"><i id="proBar" style="width:0;background:var(--amber)"></i></div>
     <div class="mute" id="goalTxt"></div>
   </div>
   <div class="card">
-    <h2>Log a meal</h2>
+    <h2>Log a meal <span class="mute" id="logFor"></span></h2>
     <textarea id="desc" rows="2" placeholder="e.g. 6 oz grilled chicken, 1 cup rice, olive oil 1 tbsp (tip: use your phone keyboard's mic to talk)"></textarea>
     <label>Photo (optional)</label>
     <input type="file" id="photo" accept="image/*">
     <p><button id="go">Estimate nutrition</button> <span class="mute" id="status"></span></p>
     <div id="result" class="hide"></div>
   </div>
-  <div class="card"><h2>Today</h2><div id="meals"></div></div>
-  <div class="card"><h2>Last 7 days</h2><div id="week"></div></div>
+  <div class="card"><h2 id="mealsH">Today</h2><div id="meals"></div></div>
+  <div class="card"><h2>Recent days</h2><p class="mute">Tap a day to see what you ate.</p><div id="week"></div></div>
 </section>
 
 <!-- WEIGHT TAB -->
@@ -94,6 +92,11 @@ svg{width:100%;height:auto;display:block}
 <!-- SETTINGS TAB -->
 <section id="t-set" class="tab">
   <div class="card">
+    <h2>Appearance</h2>
+    <label>Accent color</label><div class="sws" id="swatches"></div>
+    <label>Mode</label><select id="mode"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select>
+  </div>
+  <div class="card">
     <h2>Goals</h2>
     <label>Daily calories</label><input id="gCal" type="number" inputmode="numeric">
     <label>Daily protein (g)</label><input id="gPro" type="number" inputmode="numeric">
@@ -112,12 +115,6 @@ svg{width:100%;height:auto;display:block}
     <div class="row"><button class="ghost" id="exp">Export</button><button class="ghost" id="impB">Import</button></div>
     <input type="file" id="imp" class="hide" accept=".json">
   </div>
-  <div class="card">
-    <h2>PIN lock</h2>
-    <p class="mute">Asks for a PIN each time the app opens. Export a backup first: if you forget the PIN, the only reset is clearing the browser data, which erases your log.</p>
-    <input id="newPin" type="password" inputmode="numeric" placeholder="New PIN (4-8 digits)" autocomplete="off">
-    <p class="row"><button class="ghost" id="pinSet">Set PIN</button><button class="ghost" id="pinOff">Remove PIN</button></p>
-  </div>
   <button id="save" style="width:100%">Save settings</button>
 </section>
 </main>
@@ -132,7 +129,7 @@ svg{width:100%;height:auto;display:block}
 <script>
 // ---------- Storage: everything is kept in this browser's localStorage ----------
 const KEY = 'leangainlog.v1';
-const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-3.8-flash'};
+const DEF = {meals:[], weights:[], scans:[], goals:{cal:2800, pro:160}, unit:'lb', key:'', model:'gemini-3.8-flash', accent:'blue', mode:'auto'};
 let db = load();
 function load(){ try{ return Object.assign({}, DEF, JSON.parse(localStorage.getItem(KEY)||'{}')); }catch(e){ return {...DEF}; } }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){ alert('Could not save. Is private browsing on?'); } }
@@ -143,6 +140,18 @@ const pad = n => String(n).padStart(2,'0');
 const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; // local date, not UTC
 const today = () => dstr(new Date());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+// ---------- Theme ----------
+// [light-mode color, dark-mode color] for each accent choice
+const THEMES = {blue:['#2f5bff','#6f8cff'], green:['#1f9d6b','#3cc690'], purple:['#7a4dff','#a58bff'], orange:['#e0610b','#ff9a4d'], red:['#d63a4a','#ff7b87'], teal:['#0f8b9c','#47c9db']};
+function applyTheme(){
+  const dark = db.mode === 'dark' || (db.mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const root = document.documentElement;
+  root.dataset.mode = db.mode;
+  root.style.setProperty('--blue', (THEMES[db.accent] || THEMES.blue)[dark ? 1 : 0]);
+  document.querySelector('meta[name=theme-color]').content = dark ? '#0e1424' : '#14213d';
+}
+applyTheme();
 
 // ---------- Tabs ----------
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -206,29 +215,47 @@ function showResult(m){
   <div><label>Fat g</label><input id="rF" type="number" value="${Math.round(m.fat||0)}"></div></div>
   <p><button id="rS">Save meal</button> <span class="mute">Edit any number if it looks off.</span></p>`;
   $('rS').onclick = () => {
-    db.meals.push({id:uid(), date:today(), name:$('rN').value, cal:+$('rC').value||0, pro:+$('rP').value||0, carb:+$('rK').value||0, fat:+$('rF').value||0});
+    db.meals.push({id:uid(), date:viewDate, name:$('rN').value, cal:+$('rC').value||0, pro:+$('rP').value||0, carb:+$('rK').value||0, fat:+$('rF').value||0});
     save(); r.classList.add('hide'); $('desc').value=''; $('photo').value=''; render();
   };
 }
 
+// Which day the Food tab is showing (defaults to today; change with the arrows, date box, or Recent days)
+let viewDate = today();
+const shiftDay = (s, n) => { const [y,m,d] = s.split('-').map(Number); return dstr(new Date(y, m-1, d + n)); };
+const niceDate = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'}); };
+$('dPrev').onclick = () => { viewDate = shiftDay(viewDate, -1); render(); };
+$('dNext').onclick = () => { if(viewDate < today()){ viewDate = shiftDay(viewDate, 1); render(); } };
+$('dPick').onchange = () => { if($('dPick').value){ viewDate = $('dPick').value > today() ? today() : $('dPick').value; render(); } };
+
 function renderFood(){
-  const td = db.meals.filter(m => m.date === today());
+  const isToday = viewDate === today();
+  const td = db.meals.filter(m => m.date === viewDate);
   const sum = (a,k) => a.reduce((t,m) => t + (m[k]||0), 0);
   const cal = sum(td,'cal'), pro = sum(td,'pro');
+  $('dPick').value = viewDate; $('dNext').disabled = viewDate >= today();
+  $('calLbl').textContent = isToday ? 'Calories today' : 'Calories on ' + niceDate(viewDate);
+  $('mealsH').textContent = isToday ? 'Today' : niceDate(viewDate);
+  $('logFor').textContent = isToday ? '' : '(saves to ' + niceDate(viewDate) + ')';
   $('calTot').textContent = Math.round(cal);
   $('proTot').textContent = Math.round(pro) + 'g';
   $('calBar').style.width = Math.min(100, cal / db.goals.cal * 100) + '%';
   $('proBar').style.width = Math.min(100, pro / db.goals.pro * 100) + '%';
-  $('goalTxt').textContent = `Goal: ${db.goals.cal} cal, ${db.goals.pro}g protein. ${Math.max(0, Math.round(db.goals.cal - cal))} cal left.`;
-  $('meals').innerHTML = td.length ? td.map(m => `<div class="item"><div>${esc(m.name)}<div class="mute">${m.cal} cal · P${m.pro} C${m.carb} F${m.fat}</div></div><button class="x" data-d="${m.id}">Delete</button></div>`).join('') : '<p class="mute">Nothing logged yet today.</p>';
-  $('meals').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { db.meals = db.meals.filter(m => m.id !== b.dataset.d); save(); render(); });
+  $('goalTxt').textContent = `Goal: ${db.goals.cal} cal, ${db.goals.pro}g protein.` + (isToday ? ` ${Math.max(0, Math.round(db.goals.cal - cal))} cal left.` : '');
+  $('meals').innerHTML = td.length ? td.map(m => `<div class="item"><div>${esc(m.name)}<div class="mute">${m.cal} cal · P${m.pro} C${m.carb} F${m.fat}</div></div><button class="x" data-d="${m.id}">Delete</button></div>`).join('') : `<p class="mute">Nothing logged ${isToday ? 'yet today' : 'this day'}.</p>`;
+  // Deleting asks first, so a stray tap can't wipe an entry
+  $('meals').querySelectorAll('[data-d]').forEach(b => b.onclick = () => {
+    const m = db.meals.find(x => x.id === b.dataset.d);
+    if(m && confirm(`Delete "${m.name}" (${m.cal} cal)? This can't be undone.`)){ db.meals = db.meals.filter(x => x.id !== m.id); save(); render(); }
+  });
+  // Last 14 days with totals; tap one to view its meals
   let w = '';
-  for(let i = 1; i <= 7; i++){
-    const d = new Date(); d.setDate(d.getDate() - i); const s = dstr(d);
-    const day = db.meals.filter(m => m.date === s);
-    w += `<div class="item"><span>${s}</span><span>${day.length ? Math.round(sum(day,'cal')) + ' cal · ' + Math.round(sum(day,'pro')) + 'g protein' : '—'}</span></div>`;
+  for(let i = 0; i < 14; i++){
+    const s2 = shiftDay(today(), -i), day = db.meals.filter(m => m.date === s2);
+    w += `<div class="item day${s2 === viewDate ? ' sel' : ''}" data-day="${s2}"><span>${niceDate(s2)}</span><span>${day.length ? Math.round(sum(day,'cal')) + ' cal · ' + Math.round(sum(day,'pro')) + 'g protein' : '—'}</span></div>`;
   }
   $('week').innerHTML = w;
+  $('week').querySelectorAll('[data-day]').forEach(r => r.onclick = () => { viewDate = r.dataset.day; render(); window.scrollTo(0, 0); });
 }
 
 // ---------- Weight ----------
@@ -252,13 +279,23 @@ function renderWeight(){
     $('wChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}"><polyline points="${xy}" fill="none" stroke="var(--blue)" stroke-width="2.5"/><text x="10" y="12" font-size="10" fill="var(--mute)">${mx.toFixed(0)}</text><text x="10" y="${H-2}" font-size="10" fill="var(--mute)">${mn.toFixed(0)}</text></svg>`;
   } else { $('wTrend').textContent = 'Add at least 2 weigh-ins to see a trend. Weigh in at the same time each morning.'; $('wChart').innerHTML = ''; }
   $('wList').innerHTML = [...w].reverse().slice(0,30).map(x => `<div class="item"><span>${x.date}</span><span>${x.v} ${u} <button class="x" data-d="${x.date}">Delete</button></span></div>`).join('') || '<p class="mute">No entries yet.</p>';
-  $('wList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { db.weights = db.weights.filter(x => x.date !== b.dataset.d); save(); render(); });
+  $('wList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if(confirm(`Delete the ${b.dataset.d} weigh-in? This can't be undone.`)){ db.weights = db.weights.filter(x => x.date !== b.dataset.d); save(); render(); } });
 }
 
 // ---------- Monthly body scan ----------
 // DLM assumed to be Dry Lean Mass (InBody). good = true when going UP is what you want
-const FIELDS = [['smm','SMM (skeletal muscle mass)',true],['bfm','BFM (body fat mass)',false],['pbf','PBF (percent body fat)',false],['bmi','BMI',null],['bmr','BMR',true],['dlm','DLM (dry lean mass)',true]];
-$('scanForm').innerHTML = FIELDS.map(f => `<div><label>${f[1]}</label><input id="s_${f[0]}" type="number" step="0.1" inputmode="decimal"></div>`).join('');
+// Each field: [key, form label, good-direction (true = up is good, false = down is good, null = neutral), short list label]
+const FIELDS = [
+  ['smm','SMM (skeletal muscle mass)',true],['bfm','BFM (body fat mass)',false],['pbf','PBF (percent body fat)',false],
+  ['bmi','BMI',null],['bmr','BMR',true],['dlm','DLM (dry lean mass)',true],
+  ['trunk','Trunk lean (lb)',true,'Trunk lb'],['trunkp','Trunk lean (%)',true,'Trunk %'],
+  ['larm','Left arm lean (lb)',true,'L arm lb'],['larmp','Left arm lean (%)',true,'L arm %'],
+  ['rarm','Right arm lean (lb)',true,'R arm lb'],['rarmp','Right arm lean (%)',true,'R arm %'],
+  ['lleg','Left leg lean (lb)',true,'L leg lb'],['llegp','Left leg lean (%)',true,'L leg %'],
+  ['rleg','Right leg lean (lb)',true,'R leg lb'],['rlegp','Right leg lean (%)',true,'R leg %']
+];
+// A heading is inserted before the segmental fields (index 6)
+$('scanForm').innerHTML = FIELDS.map((f, i) => (i === 6 ? '<div style="grid-column:1/-1"><h2 style="margin-top:10px">Segmental lean analysis</h2></div>' : '') + `<div><label>${f[1]}</label><input id="s_${f[0]}" type="number" step="0.1" inputmode="decimal"></div>`).join('');
 $('sAdd').onclick = () => {
   const s = {date: today()}; let any = false;
   FIELDS.forEach(f => { const v = parseFloat($('s_' + f[0]).value); if(!isNaN(v)){ s[f[0]] = v; any = true; } });
@@ -277,15 +314,15 @@ function renderScan(){
         const d = s[f[0]] - p[f[0]], good = f[2] === null ? null : (f[2] ? d > 0 : d < 0);
         ch = ` <span class="${good === null ? 'mute' : good ? 'up' : 'down'}">(${d>=0?'+':''}${d.toFixed(1)})</span>`;
       }
-      return `<div><span class="mute">${f[0].toUpperCase()}</span> ${s[f[0]]}${ch}</div>`;
+      return `<div><span class="mute">${f[3] || f[0].toUpperCase()}</span> ${s[f[0]]}${ch}</div>`;
     }).join('');
     return `<div class="item" style="display:block"><b>${s.date}</b> <button class="x" data-d="${s.date}">Delete</button><div class="grid">${cells}</div></div>`;
   }).join('') || '<p class="mute">No scans yet. Enter your numbers after each monthly visit. Green means moving the right way for gaining muscle and staying lean.</p>';
-  $('sList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { db.scans = db.scans.filter(x => x.date !== b.dataset.d); save(); render(); });
+  $('sList').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if(confirm(`Delete the ${b.dataset.d} body scan? This can't be undone.`)){ db.scans = db.scans.filter(x => x.date !== b.dataset.d); save(); render(); } });
 }
 
 // ---------- Settings & backup ----------
-function renderSet(){ $('bkTxt').textContent = 'Last backup: ' + (localStorage.getItem('leangainlog.lastbackup') || 'never'); $('gCal').value = db.goals.cal; $('gPro').value = db.goals.pro; $('unit').value = db.unit; $('key').value = db.key; $('model').value = db.model; }
+function renderSet(){ document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.k === db.accent)); $('mode').value = db.mode; $('bkTxt').textContent = 'Last backup: ' + (localStorage.getItem('leangainlog.lastbackup') || 'never'); $('gCal').value = db.goals.cal; $('gPro').value = db.goals.pro; $('unit').value = db.unit; $('key').value = db.key; $('model').value = db.model; }
 $('save').onclick = () => {
   db.goals = {cal: +$('gCal').value || 2800, pro: +$('gPro').value || 160};
   db.unit = $('unit').value.trim() || 'lb'; db.key = $('key').value.trim(); db.model = $('model').value.trim() || 'gemini-3.8-flash';
@@ -305,36 +342,17 @@ $('imp').onchange = async e => {
   }catch(err){ alert('That file could not be read.'); }
 };
 
+// Theme controls apply immediately
+$('swatches').innerHTML = Object.keys(THEMES).map(k => `<button class="sw" data-k="${k}" style="background:${THEMES[k][0]}" aria-label="${k}"></button>`).join('');
+$('swatches').querySelectorAll('.sw').forEach(b => b.onclick = () => { db.accent = b.dataset.k; save(); applyTheme(); renderSet(); });
+$('mode').onchange = () => { db.mode = $('mode').value; save(); applyTheme(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+// The PIN lock was removed; clear any leftover PIN so nothing is hidden
+try{ localStorage.removeItem('leangainlog.pin'); }catch(e){}
 try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 function render(){ renderFood(); renderWeight(); renderScan(); renderSet(); }
 render();
 
-// ---------- PIN lock ----------
-// A casual lock: it hides the app when opened. Only a hash of the PIN is stored, in this browser.
-const PINKEY = 'leangainlog.pin';
-async function hashPin(s){
-  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lgl:' + s));
-  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2,'0')).join('');
-}
-// Show the lock screen if a PIN exists, otherwise hide it
-function lockIfSet(){
-  const has = !!localStorage.getItem(PINKEY);
-  $('lock').classList.toggle('hide', !has);
-  $('pinIn').value = ''; $('pinErr').textContent = '';
-}
-$('unlock').onclick = async () => {
-  if(await hashPin($('pinIn').value) === localStorage.getItem(PINKEY)) $('lock').classList.add('hide');
-  else { $('pinErr').textContent = 'Wrong PIN'; $('pinIn').value = ''; }
-};
-$('pinSet').onclick = async () => {
-  const p = $('newPin').value.trim();
-  if(!/^\d{4,8}$/.test(p)){ alert('Use 4 to 8 digits.'); return; }
-  localStorage.setItem(PINKEY, await hashPin(p)); $('newPin').value = ''; alert('PIN set');
-};
-$('pinOff').onclick = () => { localStorage.removeItem(PINKEY); alert('PIN removed'); };
-// Lock again whenever the app goes to the background
-document.addEventListener('visibilitychange', () => { if(document.hidden) lockIfSet(); });
-lockIfSet();
 </script>
 </body>
 </html>
